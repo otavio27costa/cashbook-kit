@@ -1,0 +1,25 @@
+REGRAS DO TAILSCALE PARA O CASHBOOK
+Onde: Admin console → Access controls → JSON editor. Print: docs/img/05-tailscale-regras.jpg
+
+1) Logo depois da primeira "{" do arquivo, cole:
+
+  "tagOwners": {"tag:cashbook": ["autogroup:admin"]},
+  "nodeAttrs": [{"target": ["tag:cashbook"], "attr": ["funnel"]}],
+
+   Se o seu arquivo JÁ tiver "tagOwners" ou "nodeAttrs" (sem // na frente), não cole de novo:
+   acrescente  "tag:cashbook": ["autogroup:admin"]  dentro do tagOwners que existe, e
+   {"target": ["tag:cashbook"], "attr": ["funnel"]}  dentro da lista do nodeAttrs que existe.
+
+2) Troque a regra que libera tudo:
+     {"src": ["*"], "dst": ["*"], "ip": ["*"]},
+   por:
+     {"src": ["autogroup:member"], "dst": ["*"], "ip": ["*"]},
+
+   Se o seu arquivo usa o formato antigo ("acls" com "action": "accept"), a troca é a mesma:
+     {"action": "accept", "src": ["*"], "dst": ["*:*"]}
+   vira
+     {"action": "accept", "src": ["autogroup:member"], "dst": ["*:*"]}
+
+   Assim só os seus aparelhos abrem conexões; o servidor exposto na internet não alcança nenhum deles.
+
+3) Save. O Tailscale valida o arquivo e mostra o erro, se houver.

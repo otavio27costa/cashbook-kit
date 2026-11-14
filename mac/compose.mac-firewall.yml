@@ -1,0 +1,17 @@
+# Isolamento no Mac: use junto com os outros dois compose, a partir da raiz do repositório:
+#   docker compose -f docker-compose.yml -f examples/tailscale-sidecar/compose.yml -f local/compose.mac-firewall.yml up -d
+services:
+  firewall:
+    build:
+      context: ./local
+      dockerfile_inline: |
+        FROM alpine:3.20
+        RUN apk add --no-cache iptables
+        COPY mac-firewall.sh /mac-firewall.sh
+        CMD ["sh", "/mac-firewall.sh"]
+    container_name: cashbook-mcp-firewall
+    network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW]
+    restart: unless-stopped
+  tailscale:
+    depends_on: [firewall]

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Instala o cashbook-mcp (Open Finance → Claude) numa máquina sua, Mac ou Linux.
+# Instala o cashbook-mcp (Open Finance → Claude) numa máquina sua: Mac, Linux ou Windows (dentro do WSL2).
 # Pode rodar quantas vezes quiser: cada passo pula o que já está feito.
 #
 #   ./instalar.sh                 instala ou continua de onde parou (pergunta o modo)
 #   ./instalar.sh --modo misto    já escolhe o modo: mao | misto | auto
 #   ./instalar.sh --checar        só confere a máquina
 #   ./instalar.sh status          mostra se o servidor está no ar
+#   ./instalar.sh docker          (Windows/WSL) instala o Docker dentro do Ubuntu
 #
 # Comandos sem pergunta nenhuma, para o Claude usar no modo automático:
 #   ./instalar.sh configurar --tailnet tail1234.ts.net --email voce@gmail.com
@@ -26,6 +27,8 @@ APP="$KIT/cashbook-mcp"
 IMG="$KIT/docs/img"
 SO="$(uname -s)"
 MODO="${CASHBOOK_MODO:-}"
+WSL=0   # 1 = Windows, rodando dentro do WSL2
+if [ "$SO" = "Linux" ] && grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then WSL=1; fi
 UID_APP=10001   # usuário do container do cashbook-mcp
 
 if [ -d "$HOME/.orbstack/bin" ]; then export PATH="$HOME/.orbstack/bin:$PATH"; fi
@@ -42,7 +45,17 @@ pergunta() {
 }
 espera_enter() { [ "$MODO" = "misto" ] || return 0; pergunta "Quando terminar, aperte Enter…" >/dev/null; }
 
-abrir() { if [ "$SO" = "Darwin" ]; then open "$@" 2>/dev/null || true; else xdg-open "$@" >/dev/null 2>&1 || true; fi; }
+abrir() {
+  if [ "$SO" = "Darwin" ]; then open "$@" 2>/dev/null || true
+  elif [ "$WSL" = 1 ]; then   # abre no Windows: o navegador e o visualizador de imagens de lá
+    local a; for a in "$@"; do   # em segundo plano e com limite: abrir nunca segura o instalador
+      case "$a" in
+        http*) (cd /mnt/c && timeout 20 cmd.exe /c start "" "$a" >/dev/null 2>&1 &) ;;
+        *)     (cd /mnt/c && timeout 20 explorer.exe "$(wslpath -w "$a")" >/dev/null 2>&1 &) ;;
+      esac
+    done
+  else xdg-open "$@" >/dev/null 2>&1 || true; fi
+}
 
 # No modo misto, abre a página certa e os prints marcados do passo.
 mostrar() {
@@ -88,9 +101,15 @@ checar() {
   local faltou=0
   case "$SO" in
     Darwin) ok "macOS" ;;
-    Linux)  ok "Linux" ;;
-    *) falta "sistema $SO não suportado (use Mac ou Linux)"; faltou=1 ;;
+    Linux)  if [ "$WSL" = 1 ]; then ok "Windows (WSL2, ${WSL_DISTRO_NAME:-Ubuntu})"; else ok "Linux"; fi ;;
+    *) falta "sistema $SO não suportado. No Windows, rode dentro do Ubuntu do WSL2 (GUIA.md, passo 5)"; faltou=1 ;;
   esac
+  if [ "$WSL" = 1 ]; then
+    if ! grep -qi wsl2 /proc/sys/kernel/osrelease; then falta "este Ubuntu está no WSL1. No PowerShell: wsl --set-version ${WSL_DISTRO_NAME:-Ubuntu} 2"; faltou=1; fi
+    case "$KIT" in /mnt/*) falta "o kit está numa pasta do Windows ($KIT). Clone dentro do Ubuntu: cd ~ && git clone …"; faltou=1 ;; esac
+    if [ -d /run/systemd/system ]; then ok "systemd ligado"
+    else falta "systemd desligado. Abra o arquivo (sudo nano /etc/wsl.conf), deixe na seção [boot] a linha systemd=true e, no PowerShell, rode wsl --shutdown"; faltou=1; fi
+  fi
   local c
   for c in git curl python3; do
     if command -v "$c" >/dev/null; then ok "$c"; else falta "$c não encontrado"; faltou=1; fi
@@ -102,9 +121,17 @@ checar() {
     if [ "$SO" = "Darwin" ] && ! grep -qi orbstack <<<"$info"; then
       aviso "este kit foi testado no Mac com o OrbStack; com outro Docker o isolamento pode não valer"
     fi
+    if [ "$WSL" = 1 ] && grep -qi 'docker desktop' <<<"$info"; then
+      falta "este é o Docker Desktop: o isolamento não chega nos containers dele. Desligue a integração dele com este Ubuntu e rode ./instalar.sh docker"
+      faltou=1
+    fi
   else
     if [ "$SO" = "Darwin" ]; then
       falta "Docker não está rodando. No Mac use o OrbStack (https://orbstack.dev): instale, abra uma vez e rode de novo."
+    elif [ "$WSL" = 1 ] && command -v docker >/dev/null && ! id -nG | grep -qw docker && getent group docker | grep -qw "$USER"; then
+      falta "o Docker está instalado, mas este terminal ainda não está no grupo docker. Feche o Ubuntu, abra de novo e rode ./instalar.sh"
+    elif [ "$WSL" = 1 ]; then
+      falta "Docker não encontrado. Instale dentro do Ubuntu (não o Docker Desktop): ./instalar.sh docker"
     else
       falta "Docker não está rodando (https://docs.docker.com/engine/install/)."
     fi
@@ -132,6 +159,10 @@ EOF
 }
 
 modo_auto() {
+  if [ "$WSL" = 1 ]; then
+    echo; echo "  No Windows o modo automático ainda não é suportado (o Claude Code no WSL pilotando o Chrome do Windows não foi testado)."
+    echo "  Rode de novo e escolha 1 ou 2."; exit 0
+  fi
   cat <<'EOF'
 
 Modo automático: abra o Claude Code nesta pasta e peça para ele instalar:
@@ -140,6 +171,67 @@ Modo automático: abra o Claude Code nesta pasta e peça para ele instalar:
 Ele usa a extensão Claude in Chrome (https://claude.com/chrome). Se preferir não usar, rode de novo e escolha 2.
 EOF
   exit 0
+}
+
+# ---------------------------------------------------------------- Windows (WSL2)
+instalar_docker_wsl() {
+  [ "$WSL" = 1 ] || pare "Este comando é para o Windows (WSL2). No Linux: https://docs.docker.com/engine/install/"
+  passo "Docker dentro do Ubuntu (repositório oficial da Docker; precisa de sudo)"
+  [ -d /run/systemd/system ] || pare "O systemd está desligado neste Ubuntu: rode ./instalar.sh --checar para ver como ligar."
+  if command -v docker >/dev/null; then ok "Docker já instalado"; else
+    . /etc/os-release
+    sudo apt-get update -qq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl git python3 >/dev/null
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL "https://download.docker.com/linux/$ID/gpg" -o /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$ID $VERSION_CODENAME stable" \
+      | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+    sudo apt-get update -qq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
+    ok "Docker instalado"
+  fi
+  sudo systemctl enable --now docker >/dev/null 2>&1
+  if id -nG | grep -qw docker; then ok "seu usuário já usa o Docker"; return; fi
+  sudo usermod -aG docker "$USER"
+  echo
+  echo "  Falta uma coisa: feche esta janela do Ubuntu, abra de novo e rode ./instalar.sh"
+  echo "  (o acesso ao Docker só vale numa sessão nova)."
+  exit 0
+}
+
+# Variável de ambiente do Windows, em UTF-8 (o cmd.exe devolve "João" na codepage antiga e o caminho quebra).
+win_var() {
+  (cd /mnt/c && powershell.exe -NoProfile -NonInteractive -Command \
+    "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Environment]::GetEnvironmentVariable('$1')" 2>/dev/null) | tr -d '\r' || true
+}
+
+manter_ligado_windows() {
+  [ "$WSL" = 1 ] || return 0
+  passo "Windows: manter o servidor ligado"
+  local ps1 tmp saida
+  tmp="$(win_var TEMP)"
+  [ -n "$tmp" ] || pare "Não consegui ler a pasta temporária do Windows (%TEMP%)."
+  ps1="$(wslpath "$tmp")/cashbook-manter-ligado.ps1"
+  cp "$KIT/windows/manter-ligado.ps1" "$ps1" || pare "Não consegui copiar o script para $tmp."
+  saida="$(cd /mnt/c && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$tmp\\cashbook-manter-ligado.ps1" -Distro "${WSL_DISTRO_NAME:?}" 2>&1 | tr -d '\r')" \
+    || { printf '%s\n' "$saida" | sed 's/^/  /'; rm -f "$ps1"; pare "Não consegui configurar o Windows para manter o WSL ligado (veja acima)."; }
+  rm -f "$ps1"
+  printf '%s\n' "$saida" | sed -e 's/^ok /  ✓ /' -e 's/^aviso /  ! /'
+  # dispara a tarefa agora: o Agendador do Windows segura o WSL ligado, mesmo depois que esta janela fechar
+  if (cd /mnt/c && schtasks.exe /run /tn "cashbook-mcp (WSL)") >/dev/null 2>&1; then
+    ok "o WSL fica ligado a partir de agora, mesmo com esta janela fechada"
+  else
+    aviso "não consegui disparar a tarefa: até reiniciar o PC, deixe uma janela do Ubuntu aberta"
+  fi
+}
+
+# Pastas onde o navegador salva o JSON do Google (no Windows, a Downloads de lá).
+pastas_downloads() {
+  echo "$HOME/Downloads"
+  if [ "$WSL" = 1 ]; then
+    local p; p="$(win_var USERPROFILE)"
+    [ -z "$p" ] || echo "$(wslpath "$p")/Downloads"
+  fi
 }
 
 # ---------------------------------------------------------------- código e imagem
@@ -151,7 +243,7 @@ baixar_codigo() {
   if [ ! -d "$APP/secrets" ]; then
     mkdir -p "$APP/data" "$APP/secrets"
     if [ "$SO" = "Linux" ]; then
-      echo "  No Linux o container roda como o usuário $UID_APP: preciso de sudo para dar acesso às pastas."
+      echo "  No Linux e no WSL o container roda como o usuário $UID_APP: preciso de sudo para dar acesso às pastas."
       sudo chgrp "$UID_APP" "$APP/data" "$APP/secrets"; chmod 770 "$APP/data" "$APP/secrets"
     else
       chmod 700 "$APP/secrets"
@@ -269,9 +361,13 @@ segredo_pluggy() {
 }
 
 guarda_google() {   # $1 = caminho do JSON (vazio: o mais novo em ~/Downloads, e pergunta se interativo)
-  local f="$APP/secrets/google-oauth.json" caminho="${1:-}" interativo="${2:-sim}" sugestao
+  local f="$APP/secrets/google-oauth.json" caminho="${1:-}" interativo="${2:-sim}" sugestao g
   if [ -z "$caminho" ]; then
-    sugestao="$(ls -t "$HOME"/Downloads/client_secret_*.json 2>/dev/null | head -1 || true)"
+    local d arqs=()
+    while IFS= read -r d; do
+      for g in "$d"/client_secret_*.json; do if [ -f "$g" ]; then arqs+=("$g"); fi; done
+    done < <(pastas_downloads)
+    sugestao="$( [ ${#arqs[@]} -gt 0 ] && ls -t "${arqs[@]}" | head -1 || true)"
     if [ "$interativo" = sim ]; then
       if [ -n "$sugestao" ]; then
         caminho="$(pergunta "Arquivo JSON do Google [Enter = $(basename "$sugestao")]:")"; caminho="${caminho:-$sugestao}"
@@ -283,7 +379,7 @@ guarda_google() {   # $1 = caminho do JSON (vazio: o mais novo em ~/Downloads, e
     fi
   fi
   caminho="${caminho/#\~/$HOME}"
-  [ -f "$caminho" ] || pare "Arquivo do Google não encontrado: ${caminho:-(nenhum client_secret_*.json em ~/Downloads)}"
+  [ -f "$caminho" ] || pare "Arquivo do Google não encontrado: ${caminho:-(nenhum client_secret_*.json em Downloads)}"
   local url; url="$(valor_env PUBLIC_URL)"
   [ -n "$url" ] || pare "Configure o tailnet antes (./instalar.sh configurar …)."
   URL="$url" python3 - "$caminho" <<'PY' || pare "O JSON do Google não serve (veja a mensagem acima)."
@@ -413,7 +509,7 @@ instalar() {
   etapa_tailscale_conta; configurar_env
   etapa_tailscale_regras; segredo_tailscale
   etapa_google; segredo_google
-  iniciar_banco; isolar_linux; subir && proximos
+  iniciar_banco; isolar_linux; manter_ligado_windows; subir && proximos
 }
 
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0   # permite "source" nos testes
@@ -441,6 +537,7 @@ case "${1:-}" in
       google)        guarda_google "${3:-}" nao ;;
       *) pare "uso: ./instalar.sh guardar pluggy-id <id> | pluggy-secret | tailscale | google [arquivo]" ;;
     esac ;;
-  subir) checar >/dev/null; iniciar_banco; isolar_linux; subir && proximos ;;
-  *) echo "uso: ./instalar.sh [--modo mao|misto|auto] | --checar | status | configurar | guardar | subir"; exit 2 ;;
+  subir) checar >/dev/null; iniciar_banco; isolar_linux; manter_ligado_windows; subir && proximos ;;
+  docker) instalar_docker_wsl ;;
+  *) echo "uso: ./instalar.sh [--modo mao|misto|auto] | --checar | status | configurar | guardar | subir | docker"; exit 2 ;;
 esac

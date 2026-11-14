@@ -129,9 +129,10 @@ até conseguem ver a tela de login, mas o servidor só aceita o seu e-mail.
 ## 5. Instalar
 
 No Mac, antes, instale e abra o [OrbStack](https://orbstack.dev). No Linux, o Docker precisa estar instalado.
+No Windows, faça antes a parte [No Windows](#no-windows), logo abaixo.
 
 ```bash
-git clone <este repositório> cashbook-kit
+git clone https://github.com/otavio27costa/cashbook-kit
 cd cashbook-kit
 ./instalar.sh
 ```
@@ -141,12 +142,50 @@ as chaves da Pluggy, o nome do tailnet, o seu Gmail, a chave do Tailscale e o JS
 
 - **No Mac**, segredo nenhum é colado no terminal. Você copia o valor na página e aperta Enter: o script lê
   da área de transferência e limpa a área depois.
-- **No Linux**, você cola o valor e ele não aparece na tela.
+- **No Linux e no Windows**, você cola o valor e ele não aparece na tela.
 
 O script confere cada coisa na hora: a Pluggy precisa aceitar as chaves, o JSON precisa ter os dois
 redirecionamentos e a chave do Tailscale precisa ter o formato certo. Depois ele cria o banco criptografado,
 liga o isolamento, sobe tudo e testa o endereço público. Se algo der errado, corrija e rode `./instalar.sh` de
 novo: ele continua de onde parou.
+
+### No Windows
+
+O servidor roda num Ubuntu dentro do Windows (WSL2), com o Docker instalado **dentro** dele. Uma vez só:
+
+1. Abra o **PowerShell como administrador**: no menu Iniciar, digite `PowerShell`, clique com o botão direito
+   em "Windows PowerShell" e escolha **Executar como administrador**. Rode:
+
+   ```powershell
+   wsl --install -d Ubuntu-24.04
+   ```
+
+   Reinicie o PC se ele pedir. Se aparecer um erro de virtualização, ligue a virtualização na BIOS do PC
+   (o nome muda por fabricante: "SVM", "VT-x" ou "Intel Virtualization Technology"). Se o `wsl --install` não
+   aceitar o `-d`, atualize o Windows pelo Windows Update e tente de novo. O Ubuntu abre sozinho e pede um usuário e uma senha: são do Ubuntu, e a senha é
+   a que o script vai pedir quando precisar de `sudo`.
+2. A partir daqui, tudo é no **Ubuntu** (menu Iniciar → Ubuntu). Baixe o kit **dentro do Ubuntu**, não numa
+   pasta do Windows (`C:\…`):
+
+   ```bash
+   cd ~
+   git clone https://github.com/otavio27costa/cashbook-kit
+   cd cashbook-kit
+   ./instalar.sh docker
+   ```
+
+   Isso instala o Docker do repositório oficial da Docker. **Não use o Docker Desktop**: o isolamento não chega
+   nos containers dele, e o script recusa. Quando ele pedir, feche a janela do Ubuntu e abra de novo.
+3. Rode `./instalar.sh` e siga como nos outros sistemas. No modo misto, as páginas e os prints abrem no
+   navegador do Windows, e o JSON do Google é achado na pasta Downloads do Windows.
+4. No fim, o script deixa o servidor sempre ligado. Uma tarefa agendada ("cashbook-mcp (WSL)") liga o Ubuntu
+   quando o Windows inicia, **mesmo sem ninguém entrar**, e o mantém ligado; ela já começa a valer na hora,
+   então você pode fechar a janela do Ubuntu. O WSL também para de desligar sozinho (se você já tinha um
+   `.wslconfig`, ele guarda uma cópia em `.wslconfig.antes-do-cashbook`). Na primeira vez o Windows pede
+   permissão de administrador: clique em **Sim**. Se recusar, o servidor só sobe depois que você entrar no
+   Windows.
+
+O modo automático (Claude Code) ainda não é suportado no Windows: use o 1 ou o 2.
 
 ## 6. Conectar os bancos no servidor
 
@@ -205,3 +244,7 @@ entre com o mesmo Google. Depois pergunte, por exemplo: "me mostra um resumo dos
 - **Ver se está no ar:** `./instalar.sh status`.
 - **Parar:** `cd cashbook-mcp && docker compose -f docker-compose.yml -f examples/tailscale-sidecar/compose.yml down`.
   No Mac, acrescente `-f local/compose.mac-firewall.yml`.
+- **Desfazer no Windows:** no PowerShell, `Stop-ScheduledTask -TaskName 'cashbook-mcp (WSL)'`,
+  `Unregister-ScheduledTask -TaskName 'cashbook-mcp (WSL)'` e `wsl --shutdown`, e tire do
+  `%USERPROFILE%\.wslconfig` as linhas `instanceIdleTimeout` e `vmIdleTimeout` (a cópia de antes está em
+  `.wslconfig.antes-do-cashbook`).

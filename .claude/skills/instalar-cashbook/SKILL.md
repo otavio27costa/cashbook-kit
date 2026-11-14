@@ -24,6 +24,12 @@ Antes de cada mudança numa conta dela, diga em uma linha o que vai mudar e espe
   peça para a pessoa rodar `./instalar.sh` no terminal dela, na hora dos segredos: ele pede cada um sem
   mostrar. O resto (navegador, `configurar`, `guardar google`, `subir`) segue igual.
 
+## No Windows
+- O modo automático ainda não é suportado no Windows (o Claude Code no WSL pilotando o Chrome do Windows não foi
+  testado). Se
+  `./instalar.sh --checar` disser "Windows (WSL2…)", avise e indique o modo misto (`./instalar.sh --modo misto`)
+  e a seção "No Windows" do GUIA.md.
+
 ## 0. Antes de começar
 - `./instalar.sh --checar`. Se faltar Docker no Mac, peça para instalar o OrbStack (orbstack.dev) e abrir uma
   vez.
